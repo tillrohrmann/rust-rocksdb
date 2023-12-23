@@ -72,6 +72,8 @@
     clippy::from_over_into,
 )]
 
+extern crate alloc;
+
 #[macro_use]
 mod ffi_util;
 
@@ -96,6 +98,8 @@ mod snapshot;
 mod sst_file_writer;
 mod transactions;
 mod write_batch;
+
+mod write_batch_with_index;
 
 pub use crate::{
     column_family::{
@@ -133,6 +137,7 @@ pub use crate::{
         TransactionDBOptions, TransactionOptions,
     },
     write_batch::{WriteBatch, WriteBatchIterator, WriteBatchWithTransaction},
+    write_batch_with_index::{WriteBatchWithIndex, WriteBatchWithIndexIterator},
 };
 
 use librocksdb_sys as ffi;

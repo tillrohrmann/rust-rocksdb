@@ -71,7 +71,7 @@ pub type DBRawIterator<'a> = DBRawIteratorWithThreadMode<'a, DB>;
 /// let _ = DB::destroy(&Options::default(), path);
 /// ```
 pub struct DBRawIteratorWithThreadMode<'a, D: DBAccess> {
-    inner: std::ptr::NonNull<ffi::rocksdb_iterator_t>,
+    inner: Option<std::ptr::NonNull<ffi::rocksdb_iterator_t>>,
 
     /// When iterate_lower_bound or iterate_upper_bound are set, the inner
     /// C iterator keeps a pointer to the upper bound inside `_readopts`.
@@ -81,7 +81,7 @@ pub struct DBRawIteratorWithThreadMode<'a, D: DBAccess> {
     /// And yes, we need to store the entire ReadOptions structure since C++
     /// ReadOptions keep reference to C rocksdb_readoptions_t wrapper which
     /// point to vectors we own.  See issue #660.
-    _readopts: ReadOptions,
+    _readopts: Option<ReadOptions>,
 
     db: PhantomData<&'a D>,
 }
@@ -101,15 +101,24 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
         Self::from_inner(inner, readopts)
     }
 
-    fn from_inner(inner: *mut ffi::rocksdb_iterator_t, readopts: ReadOptions) -> Self {
+    pub(crate) fn into_inner(
+        mut self,
+    ) -> (std::ptr::NonNull<ffi::rocksdb_iterator_t>, ReadOptions) {
+        (
+            self.inner.take().expect("inner must be set"),
+            self._readopts.take().expect("_readopts must be set"),
+        )
+    }
+
+    pub(crate) fn from_inner(inner: *mut ffi::rocksdb_iterator_t, readopts: ReadOptions) -> Self {
         // This unwrap will never fail since rocksdb_create_iterator and
         // rocksdb_create_iterator_cf functions always return non-null. They
         // use new and deference the result so any nulls would end up with SIGSEGV
         // there and we would have a bigger issue.
         let inner = std::ptr::NonNull::new(inner).unwrap();
         Self {
-            inner,
-            _readopts: readopts,
+            inner: Some(inner),
+            _readopts: Some(readopts),
             db: PhantomData,
         }
     }
@@ -121,7 +130,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     /// returned `false`, use the [`status`](DBRawIteratorWithThreadMode::status) method. `status` will never
     /// return an error when `valid` is `true`.
     pub fn valid(&self) -> bool {
-        unsafe { ffi::rocksdb_iter_valid(self.inner.as_ptr()) != 0 }
+        unsafe { ffi::rocksdb_iter_valid(self.inner.expect("inner needs to be set").as_ptr()) != 0 }
     }
 
     /// Returns an error `Result` if the iterator has encountered an error
@@ -131,7 +140,9 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     /// Performing a seek will discard the current status.
     pub fn status(&self) -> Result<(), Error> {
         unsafe {
-            ffi_try!(ffi::rocksdb_iter_get_error(self.inner.as_ptr()));
+            ffi_try!(ffi::rocksdb_iter_get_error(
+                self.inner.expect("inner needs to be set").as_ptr()
+            ));
         }
         Ok(())
     }
@@ -169,7 +180,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     /// ```
     pub fn seek_to_first(&mut self) {
         unsafe {
-            ffi::rocksdb_iter_seek_to_first(self.inner.as_ptr());
+            ffi::rocksdb_iter_seek_to_first(self.inner.expect("inner needs to be set").as_ptr());
         }
     }
 
@@ -206,7 +217,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     /// ```
     pub fn seek_to_last(&mut self) {
         unsafe {
-            ffi::rocksdb_iter_seek_to_last(self.inner.as_ptr());
+            ffi::rocksdb_iter_seek_to_last(self.inner.expect("inner needs to be set").as_ptr());
         }
     }
 
@@ -241,7 +252,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
 
         unsafe {
             ffi::rocksdb_iter_seek(
-                self.inner.as_ptr(),
+                self.inner.expect("inner needs to be set").as_ptr(),
                 key.as_ptr() as *const c_char,
                 key.len() as size_t,
             );
@@ -280,7 +291,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
 
         unsafe {
             ffi::rocksdb_iter_seek_for_prev(
-                self.inner.as_ptr(),
+                self.inner.expect("inner needs to be set").as_ptr(),
                 key.as_ptr() as *const c_char,
                 key.len() as size_t,
             );
@@ -291,7 +302,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     pub fn next(&mut self) {
         if self.valid() {
             unsafe {
-                ffi::rocksdb_iter_next(self.inner.as_ptr());
+                ffi::rocksdb_iter_next(self.inner.expect("inner needs to be set").as_ptr());
             }
         }
     }
@@ -300,7 +311,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     pub fn prev(&mut self) {
         if self.valid() {
             unsafe {
-                ffi::rocksdb_iter_prev(self.inner.as_ptr());
+                ffi::rocksdb_iter_prev(self.inner.expect("inner needs to be set").as_ptr());
             }
         }
     }
@@ -339,7 +350,10 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
         unsafe {
             let mut key_len: size_t = 0;
             let key_len_ptr: *mut size_t = &mut key_len;
-            let key_ptr = ffi::rocksdb_iter_key(self.inner.as_ptr(), key_len_ptr);
+            let key_ptr = ffi::rocksdb_iter_key(
+                self.inner.expect("inner needs to be set").as_ptr(),
+                key_len_ptr,
+            );
             slice::from_raw_parts(key_ptr as *const c_uchar, key_len)
         }
     }
@@ -351,7 +365,10 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
         unsafe {
             let mut val_len: size_t = 0;
             let val_len_ptr: *mut size_t = &mut val_len;
-            let val_ptr = ffi::rocksdb_iter_value(self.inner.as_ptr(), val_len_ptr);
+            let val_ptr = ffi::rocksdb_iter_value(
+                self.inner.expect("inner needs to be set").as_ptr(),
+                val_len_ptr,
+            );
             slice::from_raw_parts(val_ptr as *const c_uchar, val_len)
         }
     }
@@ -359,8 +376,10 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
 
 impl<'a, D: DBAccess> Drop for DBRawIteratorWithThreadMode<'a, D> {
     fn drop(&mut self) {
-        unsafe {
-            ffi::rocksdb_iter_destroy(self.inner.as_ptr());
+        if let Some(inner) = self.inner {
+            unsafe {
+                ffi::rocksdb_iter_destroy(inner.as_ptr());
+            }
         }
     }
 }
