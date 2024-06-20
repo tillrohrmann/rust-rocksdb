@@ -43,6 +43,8 @@ use std::time::Duration;
 
 use parking_lot::RwLock;
 
+pub(crate) type CompactString = smartstring::SmartString<smartstring::LazyCompact>;
+
 /// Marker trait to specify single or multi threaded column family alternations for
 /// [`DBWithThreadMode<T>`]
 ///
@@ -56,7 +58,7 @@ use parking_lot::RwLock;
 pub trait ThreadMode {
     /// Internal implementation for storing column family handles
     fn new_cf_map_internal(
-        cf_map: BTreeMap<String, *mut ffi::rocksdb_column_family_handle_t>,
+        cf_map: BTreeMap<CompactString, *mut ffi::rocksdb_column_family_handle_t>,
     ) -> Self;
     /// Internal implementation for dropping column family handles
     fn drop_all_cfs_internal(&mut self);
@@ -69,7 +71,7 @@ pub trait ThreadMode {
 ///
 /// See [`DB`] for more details, including performance implications for each mode
 pub struct SingleThreaded {
-    pub(crate) cfs: BTreeMap<String, ColumnFamily>,
+    pub(crate) cfs: BTreeMap<CompactString, ColumnFamily>,
 }
 
 /// Actual marker type for the marker trait `ThreadMode`, which holds
@@ -78,12 +80,12 @@ pub struct SingleThreaded {
 ///
 /// See [`DB`] for more details, including performance implications for each mode
 pub struct MultiThreaded {
-    pub(crate) cfs: RwLock<BTreeMap<String, Arc<UnboundColumnFamily>>>,
+    pub(crate) cfs: RwLock<BTreeMap<CompactString, Arc<UnboundColumnFamily>>>,
 }
 
 impl ThreadMode for SingleThreaded {
     fn new_cf_map_internal(
-        cfs: BTreeMap<String, *mut ffi::rocksdb_column_family_handle_t>,
+        cfs: BTreeMap<CompactString, *mut ffi::rocksdb_column_family_handle_t>,
     ) -> Self {
         Self {
             cfs: cfs
@@ -101,7 +103,7 @@ impl ThreadMode for SingleThreaded {
 
 impl ThreadMode for MultiThreaded {
     fn new_cf_map_internal(
-        cfs: BTreeMap<String, *mut ffi::rocksdb_column_family_handle_t>,
+        cfs: BTreeMap<CompactString, *mut ffi::rocksdb_column_family_handle_t>,
     ) -> Self {
         Self {
             cfs: RwLock::new(
@@ -672,7 +674,7 @@ impl<T: ThreadMode> DBWithThreadMode<T> {
             }
 
             for (cf_desc, inner) in cfs_v.iter().zip(cfhandles) {
-                cf_map.insert(cf_desc.name.clone(), inner);
+                cf_map.insert(cf_desc.name.clone().into(), inner);
             }
         }
 
@@ -2207,7 +2209,7 @@ impl<I: DBInner> DBCommon<SingleThreaded, I> {
         let inner = self.create_inner_cf_handle(name.as_ref(), opts)?;
         self.cfs
             .cfs
-            .insert(name.as_ref().to_string(), ColumnFamily { inner });
+            .insert(name.as_ref().into(), ColumnFamily { inner });
         Ok(())
     }
 
@@ -2230,8 +2232,8 @@ impl<I: DBInner> DBCommon<MultiThreaded, I> {
     /// Creates column family with given name and options
     pub fn create_cf<N: AsRef<str>>(&self, name: N, opts: &Options) -> Result<(), Error> {
         let inner = self.create_inner_cf_handle(name.as_ref(), opts)?;
-            name.as_ref().to_string(),
         self.cfs.cfs.write().insert(
+            name.as_ref().into(),
             Arc::new(UnboundColumnFamily { inner }),
         );
         Ok(())

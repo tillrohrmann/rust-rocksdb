@@ -40,6 +40,8 @@ libc = "0.2"
 librocksdb-sys = { path = "librocksdb-sys", version = "0.17.0" }
 serde = { version = "1", features = [ "derive" ], optional = true }
 parking_lot = { version = "0.12" }
+smartstring = { version = "1.0" }
+
 
 [dev-dependencies]
 trybuild = "<=1.0.89" # trybuild 1.0.90 needs MSRV 1.70
