@@ -39,8 +39,9 @@ use std::ptr;
 use std::slice;
 use std::str;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::time::Duration;
+
+use parking_lot::RwLock;
 
 /// Marker trait to specify single or multi threaded column family alternations for
 /// [`DBWithThreadMode<T>`]
@@ -113,7 +114,7 @@ impl ThreadMode for MultiThreaded {
 
     fn drop_all_cfs_internal(&mut self) {
         // Cause all UnboundColumnFamily objects to be Drop::drop()-ed.
-        self.cfs.write().unwrap().clear();
+        self.cfs.write().clear();
     }
 }
 
@@ -2473,8 +2474,8 @@ impl<I: DBInner> DBCommon<MultiThreaded, I> {
     /// Creates column family with given name and options
     pub fn create_cf<N: AsRef<str>>(&self, name: N, opts: &Options) -> Result<(), Error> {
         let inner = self.create_inner_cf_handle(name.as_ref(), opts)?;
-        self.cfs.cfs.write().unwrap().insert(
             name.as_ref().to_string(),
+        self.cfs.cfs.write().insert(
             Arc::new(UnboundColumnFamily { inner }),
         );
         Ok(())
@@ -2483,7 +2484,7 @@ impl<I: DBInner> DBCommon<MultiThreaded, I> {
     /// Drops the column family with the given name by internally locking the inner column
     /// family map. This avoids needing `&mut self` reference
     pub fn drop_cf(&self, name: &str) -> Result<(), Error> {
-        if let Some(cf) = self.cfs.cfs.write().unwrap().remove(name) {
+        if let Some(cf) = self.cfs.cfs.write().remove(name) {
             self.drop_column_family(cf.inner, cf)
         } else {
             Err(Error::new(format!("Invalid column family: {name}")))
@@ -2495,7 +2496,6 @@ impl<I: DBInner> DBCommon<MultiThreaded, I> {
         self.cfs
             .cfs
             .read()
-            .unwrap()
             .get(name)
             .cloned()
             .map(UnboundColumnFamily::bound_column_family)
