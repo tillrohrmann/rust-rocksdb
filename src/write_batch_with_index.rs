@@ -304,6 +304,7 @@ impl WriteBatchWithIndex {
             ffi::rocksdb_writebatch_wi_create_iterator_with_base(
                 self.inner,
                 base_iterator_inner.as_ptr(),
+                readopts.inner,
             )
         };
 
@@ -324,7 +325,8 @@ impl WriteBatchWithIndex {
             ffi::rocksdb_writebatch_wi_create_iterator_with_base_cf(
                 self.inner,
                 base_iterator_inner.as_ptr(),
-                cf.inner()
+                cf.inner(),
+                readopts.inner,
             )
         };
 
