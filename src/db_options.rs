@@ -3527,6 +3527,19 @@ impl ReadOptions {
         }
     }
 
+    /// When true, by default use total_order_seek = true, and RocksDB can
+    /// selectively enable prefix seek mode if won't generate a different result
+    /// from total_order_seek, based on seek key, and iterator upper bound.
+    /// This allows bloom filters to be used even for range scans when the
+    /// iterator bounds fall within the same prefix.
+    ///
+    /// Default: false
+    pub fn set_auto_prefix_mode(&mut self, v: bool) {
+        unsafe {
+            ffi::rocksdb_readoptions_set_auto_prefix_mode(self.inner, c_uchar::from(v));
+        }
+    }
+
     /// Sets a threshold for the number of keys that can be skipped
     /// before failing an iterator seek as incomplete. The default value of 0 should be used to
     /// never fail a request as incomplete, even on skipping too many keys.
